@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import otterImgUrl from '../assets/GxzZ-2nXwAAuNz_-removebg-preview.png'
+import beachBgUrl from '../assets/beach.jpeg'
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
@@ -16,19 +17,42 @@ function drawRoundedRect(ctx, x, y, width, height, radius) {
   ctx.closePath()
 }
 
-function drawGlowBall(ctx, x, y, r, color) {
-  const gradient = ctx.createRadialGradient(x, y, 1, x, y, r * 1.5)
-  gradient.addColorStop(0, 'rgba(255,255,255,0.95)')
-  gradient.addColorStop(0.3, color)
-  gradient.addColorStop(1, 'rgba(0,0,0,0)')
-  ctx.fillStyle = gradient
-  ctx.beginPath()
-  ctx.arc(x, y, r * 1.5, 0, Math.PI * 2)
-  ctx.fill()
-
+function drawBeachBall(ctx, x, y, r, rotation) {
+  // Colored panels
+  const colors = ['#ef4444', '#f59e0b', '#3b82f6', '#22c55e', '#f97316', '#a855f7']
+  const n = colors.length
+  for (let i = 0; i < n; i++) {
+    const a0 = rotation + (i * (Math.PI * 2)) / n
+    const a1 = rotation + ((i + 1) * (Math.PI * 2)) / n
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    ctx.arc(x, y, r, a0, a1)
+    ctx.closePath()
+    ctx.fillStyle = colors[i]
+    ctx.fill()
+  }
+  // White seams
+  ctx.strokeStyle = 'rgba(255,255,255,0.9)'
+  ctx.lineWidth = Math.max(2, r * 0.08)
+  for (let i = 0; i < n; i++) {
+    const a = rotation + (i * (Math.PI * 2)) / n
+    ctx.beginPath()
+    ctx.moveTo(x, y)
+    ctx.lineTo(x + Math.cos(a) * r, y + Math.sin(a) * r)
+    ctx.stroke()
+  }
+  // Top patch
   ctx.fillStyle = 'white'
   ctx.beginPath()
-  ctx.arc(x - r * 0.3, y - r * 0.3, r * 0.35, 0, Math.PI * 2)
+  ctx.arc(x + Math.cos(rotation - 0.5) * (r * 0.25), y + Math.sin(rotation - 0.5) * (r * 0.25), r * 0.24, 0, Math.PI * 2)
+  ctx.fill()
+  // Specular highlight
+  const g = ctx.createRadialGradient(x - r * 0.3, y - r * 0.35, 1, x - r * 0.3, y - r * 0.35, r)
+  g.addColorStop(0, 'rgba(255,255,255,0.55)')
+  g.addColorStop(1, 'rgba(255,255,255,0)')
+  ctx.fillStyle = g
+  ctx.beginPath()
+  ctx.arc(x, y, r, 0, Math.PI * 2)
   ctx.fill()
 }
 
@@ -119,6 +143,7 @@ export default function OtterBounce() {
   const scoreRef = useRef(0)
   const highScoreRef = useRef(highScore)
   const otterImageRef = useRef(null)
+  const beachImageRef = useRef(null)
   const pausedRef = useRef(false)
   const startGameRef = useRef(() => {})
   const resumeGameRef = useRef(() => {})
@@ -132,7 +157,7 @@ export default function OtterBounce() {
 
   // Game state stored in refs to avoid re-renders in RAF
   const stateRef = useRef({
-    ball: { x: 200, y: 120, vx: 8, vy: 8, r: 10, color: 'rgba(99, 179, 237, 0.9)' },
+    ball: { x: 200, y: 120, vx: 8, vy: 8, r: 14, rot: 0 },
     paddle: { cx: 200, width: 160, height: 120, speed: 9 },
     ballSpeed: 9,
     speedIncreasePerHit: 0.6,
@@ -140,6 +165,9 @@ export default function OtterBounce() {
     lastTime: 0,
     dpi: 1,
     trail: [],
+    t: 0,
+    clouds: [],
+    sandDots: [],
   })
 
   useEffect(() => {
@@ -157,6 +185,14 @@ export default function OtterBounce() {
         otterImageRef.current = img
       }
     }
+    // Load beach background once
+    if (!beachImageRef.current) {
+      const bg = new Image()
+      bg.src = beachBgUrl
+      bg.onload = () => {
+        beachImageRef.current = bg
+      }
+    }
 
     function resize() {
       const rect = parent.getBoundingClientRect()
@@ -171,6 +207,19 @@ export default function OtterBounce() {
       stateRef.current.paddle.width = clamp(rect.width * 0.22, 140, 260)
       stateRef.current.paddle.height = clamp(rect.height * 0.18, 90, 160)
       stateRef.current.paddle.cx = rect.width / 2
+
+      // Precompute minimal beach accents
+      const width = rect.width
+      const height = rect.height
+      const horizon = height * 0.42
+      const clouds = []
+      const dots = []
+      const sandTop = height * 0.8
+      for (let i = 0; i < 80; i++) {
+        dots.push({ x: (i * 97) % width, y: sandTop + ((i * 53) % (height - sandTop)), s: (i % 4) + 1 })
+      }
+      stateRef.current.clouds = clouds
+      stateRef.current.sandDots = dots
     }
 
     resize()
@@ -275,39 +324,44 @@ export default function OtterBounce() {
       }
     }
 
-    function drawBackground() {
+    function drawBackground(time) {
       const w = canvas.width
       const h = canvas.height
-      // Panel background (subtle dark gradient)
-      const g = ctx.createLinearGradient(0, 0, 0, h)
-      g.addColorStop(0, '#0b1220')
-      g.addColorStop(0.6, '#0a1630')
-      g.addColorStop(1, '#0b1120')
-      ctx.fillStyle = g
-      ctx.fillRect(0, 0, w, h)
-
-      // Inner glow vignette
-      const vg = ctx.createRadialGradient(w / 2, h / 2.2, 40, w / 2, h / 2, Math.max(w, h) / 1.2)
-      vg.addColorStop(0, 'rgba(56,189,248,0.08)')
-      vg.addColorStop(1, 'rgba(0,0,0,0.6)')
-      ctx.fillStyle = vg
-      ctx.fillRect(0, 0, w, h)
-      // Bokeh lights
-      for (let i = 0; i < 16; i++) {
-        const rx = (i * 127.3) % w
-        const ry = (i * 89.1) % h
-        const rr = 20 + ((i * 37.7) % 80)
-        const a = 0.05 + ((i * 13.3) % 0.08)
-        const g2 = ctx.createRadialGradient(rx, ry, 1, rx, ry, rr)
-        g2.addColorStop(0, `rgba(99,102,241,${a + 0.05})`)
-        g2.addColorStop(1, 'rgba(0,0,0,0)')
-        ctx.fillStyle = g2
-        ctx.beginPath()
-        ctx.arc(rx, ry, rr, 0, Math.PI * 2)
-        ctx.fill()
+      const bg = beachImageRef.current
+      if (bg) {
+        const canvasAR = w / h
+        const imgAR = bg.width / bg.height
+        let dw = w
+        let dh = h
+        let dx = 0
+        let dy = 0
+        if (imgAR > canvasAR) {
+          dw = h * imgAR
+          dh = h
+          dx = (w - dw) / 2
+          dy = 0
+        } else {
+          dw = w
+          dh = w / imgAR
+          dx = 0
+          dy = (h - dh) / 2
+        }
+        ctx.imageSmoothingQuality = 'high'
+        ctx.drawImage(bg, dx, dy, dw, dh)
+      } else {
+        // Fallback gradient
+        const g = ctx.createLinearGradient(0, 0, 0, h)
+        g.addColorStop(0, '#9fd8ff')
+        g.addColorStop(1, '#1285c7')
+        ctx.fillStyle = g
+        ctx.fillRect(0, 0, w, h)
       }
+
+      // Darken slightly to improve readability
+      ctx.fillStyle = 'rgba(0,0,0,0.15)'
+      ctx.fillRect(0, 0, w, h)
       // Border
-      ctx.strokeStyle = 'rgba(99,102,241,0.25)'
+      ctx.strokeStyle = 'rgba(3,7,18,0.25)'
       ctx.lineWidth = 2
       ctx.strokeRect(1, 1, w - 2, h - 2)
     }
@@ -322,7 +376,7 @@ export default function OtterBounce() {
       // Clear
       ctx.save()
       ctx.scale(dpr, dpr)
-      drawBackground()
+      drawBackground(ts)
 
       // Controls only while running
       if (runningRef.current) {
@@ -421,6 +475,9 @@ export default function OtterBounce() {
         const trail = stateRef.current.trail
         trail.push({ x: ball.x, y: ball.y, r: ball.r })
         if (trail.length > 18) trail.shift()
+
+        // Spin beach ball as it moves
+        ball.rot += (Math.hypot(ball.vx, ball.vy) * 0.02) / Math.max(1, ball.r)
       }
 
       // Draw trail
@@ -434,7 +491,7 @@ export default function OtterBounce() {
       }
 
       // Draw ball
-      drawGlowBall(ctx, ball.x, ball.y, ball.r, 'rgba(99, 179, 237, 0.85)')
+      drawBeachBall(ctx, ball.x, ball.y, ball.r, stateRef.current.ball.rot || 0)
 
       // Draw otter (image if loaded, fallback otherwise)
       let otter
@@ -472,12 +529,22 @@ export default function OtterBounce() {
       }
 
       // HUD
+      // Move score to bottom-left with high contrast
+      const scoreBg = ctx.createLinearGradient(0, height - 90, 0, height)
+      scoreBg.addColorStop(0, 'rgba(2,6,23,0.55)')
+      scoreBg.addColorStop(1, 'rgba(2,6,23,0.35)')
+      ctx.fillStyle = scoreBg
+      drawRoundedRect(ctx, 12, height - 86, 170, 72, 12)
+      ctx.fill()
+      ctx.strokeStyle = 'rgba(255,255,255,0.18)'
+      drawRoundedRect(ctx, 12, height - 86, 170, 72, 12)
+      ctx.stroke()
       ctx.fillStyle = 'rgba(255,255,255,0.95)'
-      ctx.font = '600 28px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif'
-      ctx.fillText(`Score: ${scoreRef.current}`, 20, 40)
+      ctx.font = '700 22px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif'
+      ctx.fillText(`Score: ${scoreRef.current}`, 22, height - 46)
       ctx.fillStyle = 'rgba(255,255,255,0.75)'
-      ctx.font = '500 16px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif'
-      ctx.fillText(`High: ${highScoreRef.current}`, 22, 64)
+      ctx.font = '500 14px ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif'
+      ctx.fillText(`High: ${highScoreRef.current}`, 24, height - 24)
 
       // Overlay UI when paused or game over
       if (!runningRef.current) {
