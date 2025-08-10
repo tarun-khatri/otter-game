@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import otterImgUrl from '../assets/GxzZ-2nXwAAuNz_-removebg-preview.png'
-import beachBgUrl from '../assets/beach.jpeg'
+import beachBgUrl from '../assets/beach.jpg'
 
 function clamp(value, min, max) {
   return Math.max(min, Math.min(max, value))
