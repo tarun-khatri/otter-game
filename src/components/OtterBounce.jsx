@@ -196,17 +196,32 @@ export default function OtterBounce() {
 
     function resize() {
       const rect = parent.getBoundingClientRect()
-      const dpr = window.devicePixelRatio || 1
+      // Use integer DPR to avoid fractional scaling mismatches in emulation
+      const dpr = Math.max(1, Math.round(window.devicePixelRatio || 1))
       stateRef.current.dpi = dpr
       canvas.width = Math.floor(rect.width * dpr)
       canvas.height = Math.floor(rect.height * dpr)
       canvas.style.width = `${rect.width}px`
       canvas.style.height = `${rect.height}px`
 
-      // Adjust paddle size based on width
-      stateRef.current.paddle.width = clamp(rect.width * 0.22, 140, 260)
-      stateRef.current.paddle.height = clamp(rect.height * 0.18, 90, 160)
+      // Adjust paddle size and speed responsively
+      const basePaddleW = rect.width * 0.22
+      const minPaddleW = Math.max(60, rect.width * 0.16)
+      const maxPaddleW = Math.min(280, rect.width * 0.34)
+      stateRef.current.paddle.width = clamp(basePaddleW, minPaddleW, maxPaddleW)
+
+      const basePaddleH = rect.height * 0.18
+      const minPaddleH = Math.max(60, rect.height * 0.12)
+      const maxPaddleH = Math.min(200, rect.height * 0.28)
+      stateRef.current.paddle.height = clamp(basePaddleH, minPaddleH, maxPaddleH)
+
+      stateRef.current.paddle.speed = Math.max(6, Math.min(18, rect.width * 0.02))
       stateRef.current.paddle.cx = rect.width / 2
+
+      // Scale ball radius with viewport, factoring device size
+      const logicalW = canvas.width / dpr
+      const logicalH = canvas.height / dpr
+      stateRef.current.ball.r = clamp(Math.min(logicalW, logicalH) * 0.02, 12, 24)
 
       // Precompute minimal beach accents
       const width = rect.width
@@ -325,27 +340,18 @@ export default function OtterBounce() {
     }
 
     function drawBackground(time) {
-      const w = canvas.width
-      const h = canvas.height
+      const dpr = stateRef.current.dpi
+      const w = canvas.width / dpr
+      const h = canvas.height / dpr
       const bg = beachImageRef.current
       if (bg) {
-        const canvasAR = w / h
-        const imgAR = bg.width / bg.height
-        let dw = w
-        let dh = h
-        let dx = 0
-        let dy = 0
-        if (imgAR > canvasAR) {
-          dw = h * imgAR
-          dh = h
-          dx = (w - dw) / 2
-          dy = 0
-        } else {
-          dw = w
-          dh = w / imgAR
-          dx = 0
-          dy = (h - dh) / 2
-        }
+        // Draw like CSS background-size: cover; background-position: center bottom
+        const scale = Math.max(w / bg.width, h / bg.height)
+        const dw = bg.width * scale
+        const dh = bg.height * scale
+        const dx = (w - dw) / 2
+        const dy = h - dh // anchor bottom
+        ctx.imageSmoothingEnabled = true
         ctx.imageSmoothingQuality = 'high'
         ctx.drawImage(bg, dx, dy, dw, dh)
       } else {
@@ -408,7 +414,7 @@ export default function OtterBounce() {
         let barY
         const img = otterImageRef.current
         if (img) {
-          const imageWidthFactor = 0.45
+          const imageWidthFactor = clamp(Math.min(width, height) * 0.0009, 0.35, 0.5)
           const drawW = paddle.width * imageWidthFactor
           const scale = drawW / img.width
           const drawH = img.height * scale
@@ -497,8 +503,9 @@ export default function OtterBounce() {
       let otter
       const img = otterImageRef.current
       if (img) {
-        const imageWidthFactor = 0.45
-        const drawW = paddle.width * imageWidthFactor // make image smaller
+        // Image size scales relative to paddle and viewport
+        const imageWidthFactor = clamp(Math.min(width, height) * 0.0009, 0.35, 0.5)
+        const drawW = paddle.width * imageWidthFactor
         const scale = drawW / img.width
         const drawH = img.height * scale
         const baseY = height - 2 // sit at the bottom of the play box

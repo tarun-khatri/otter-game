@@ -17,7 +17,7 @@ function App() {
         <div className="mx-auto max-w-5xl">
           <div
             className="relative rounded-3xl border border-indigo-400/30 bg-gradient-to-b from-slate-900/70 to-slate-950/70 shadow-[0_0_80px_rgba(56,189,248,0.12)] backdrop-blur-xl overflow-hidden"
-            style={{ height: 'calc(100vh - 120px)', minHeight: '520px' }}
+            style={{ height: 'min(78vh, 900px)', minHeight: '520px' }}
           >
             <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,rgba(56,189,248,0.15),transparent_60%)]" />
             <OtterBounce />
